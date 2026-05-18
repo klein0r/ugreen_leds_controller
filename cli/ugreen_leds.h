@@ -23,13 +23,6 @@
 
 class ugreen_leds_t {
 
-    i2c_device_t _i2c;
-    model_t _model = model_t::DXP;
-
-    static model_t detect_model();
-    void init_idx6011();
-    uint8_t get_i2c_reg(led_type_t id) const;
-
 public:
 
     enum class op_mode_t : uint8_t {
@@ -50,10 +43,8 @@ public:
         uint8_t brightness;
         uint8_t color_r, color_g, color_b;
         uint16_t t_on, t_off;
-
     };
 
-public:
     int start();
 
     led_data_t get_status(led_type_t id);
@@ -66,6 +57,13 @@ public:
     bool is_last_modification_successful();
 
 private:
+    i2c_device_t _i2c;
+    model_t _model = model_t::DXP;
+
+    static model_t detect_model();
+    void init_idx6011();
+    uint8_t get_i2c_reg(led_type_t id) const;
+
     int _set_blink_or_breath(uint8_t command, led_type_t id, uint16_t t_on, uint16_t t_off);
     int _change_status(led_type_t id, uint8_t command, std::array<std::optional<uint8_t>, 4> params);
 };
