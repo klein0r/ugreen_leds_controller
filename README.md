@@ -33,7 +33,12 @@ For third-party systems, I am using Debian 12 "Bookworm", but you can find some 
 - **DSM**: see [#8](https://github.com/miskcoo/ugreen_leds_controller/issues/8)
 - **TrueNAS**: see [#13](https://github.com/miskcoo/ugreen_leds_controller/issues/13) and [this repo](https://github.com/0x556c79/install-ugreen-leds-controller) (and maybe [here](https://github.com/miskcoo/ugreen_leds_controller/tree/truenas-build/build-scripts/truenas)) for how to build the module, and [here](https://gist.github.com/Kerryliu/c380bb6b3b69be5671105fc23e19b7e8) for a script using the cli tool; [here](https://github.com/miskcoo/ugreen_leds_controller/tree/gh-actions/build-scripts/truenas/build) for pre-build drivers 
 - **unRAID**: there is a [plugin](https://forums.unraid.net/topic/168423-ugreen-nas-led-control/); see also [this repo](https://github.com/ich777/unraid-ugreenleds-driver/tree/master/source/usr/bin)
-- **Proxmox**: you need to use the cli tool in Proxmox, not in a VM
+- **Proxmox / LXC containers**: the kernel module runs on the host kernel and detects the model automatically. The CLI tool is also usable inside an LXC container (with the I²C device passed through), but if DMI info is not accessible in the container, set the `UGREEN_MODEL` environment variable:
+  ```bash
+  export UGREEN_MODEL=idx6011   # for iDX6011 Pro / iDX6012
+  # or per-invocation:
+  UGREEN_MODEL=idx6011 ugreen_leds_cli all -status
+  ```
 - **Debian**: see [the section below](#start-at-boot-for-debian-12)
 
 Below is an example:  

@@ -5,10 +5,23 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <cstdlib>
 
 #define I2C_DEV_PATH  "/sys/class/i2c-dev/"
 
 ugreen_leds_t::model_t ugreen_leds_t::detect_model() {
+    // Explicit override via environment variable (useful in LXC containers where
+    // DMI sysfs may not be accessible): UGREEN_MODEL=idx6011 ugreen_leds_cli ...
+    const char *env = std::getenv("UGREEN_MODEL");
+    if (env) {
+        std::string val(env);
+        if (val == "idx6011" || val == "idx6012" || val == "IDX6011" || val == "IDX6012")
+            return model_t::IDX6011;
+        if (val == "dxp" || val == "DXP")
+            return model_t::DXP;
+    }
+
+    // Fallback: read DMI product name from sysfs
     std::ifstream ifs("/sys/class/dmi/id/product_name");
     std::string product;
     std::getline(ifs, product);
