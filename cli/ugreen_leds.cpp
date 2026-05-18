@@ -33,8 +33,29 @@ ugreen_leds_t::model_t ugreen_leds_t::detect_model() {
     return model_t::DXP;
 }
 
+// Returns true if the MCU is already in host-control mode (not running autonomous animation).
+// Detected by sending a no-op write (set brightness to current value) to reg 0 and checking
+// the MCU's acknowledgement register 0x80. In animation mode the MCU ignores host writes,
+// so 0x80 stays != 1.
+bool ugreen_leds_t::needs_init_idx6011() {
+    uint16_t sum = 0xa1 + 0x01; // cmd=0x01, all params=0
+    std::vector<uint8_t> probe {
+        0xa0, 0x01, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00,
+        (uint8_t)((sum >> 8) & 0xff),
+        (uint8_t)(sum & 0xff)
+    };
+    _i2c.write_smbus_block_data(0x00, probe);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return _i2c.read_byte_data(0x80) != 1;
+}
+
 void ugreen_leds_t::init_idx6011() {
-    // Mirrors the 5-call host-takeover sequence from leds_ugreen_probe() in leds-mcu.ko
+    // Mirrors the 5-call host-takeover sequence from leds_ugreen_probe() in leds-mcu.ko.
+    // Only runs when the MCU is still in autonomous animation mode.
+    if (!needs_init_idx6011())
+        return;
+
     auto send = [&](uint8_t cmd, uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4) {
         uint16_t sum = 0xa1 + cmd + p1 + p2 + p3 + p4;
         std::vector<uint8_t> data {

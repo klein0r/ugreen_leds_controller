@@ -65,6 +65,7 @@ private:
     model_t _model = model_t::DXP;
 
     static model_t detect_model();
+    bool needs_init_idx6011();
     void init_idx6011();
     uint8_t get_i2c_reg(led_type_t id) const;
 
