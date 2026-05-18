@@ -1,10 +1,10 @@
-LED Controller for UGREEN's DX/DXP NAS Series
+LED Controller for UGREEN's DX/DXP/iDX NAS Series
 ==
 
-UGREEN's DX/DXP NAS Series covers 2 to 8 bay NAS devices with a built-in system based on OpenWRT called `UGOS` or Debian called `UGOS-Pro`.  
+UGREEN's NAS series covers 2 to 8 bay NAS devices with a built-in system based on OpenWRT called `UGOS` or Debian called `UGOS-Pro`.  
 Debian Linux or dedicated NAS operating systems and appliances are compatible with the hardware, but do not have drivers for the LED lights on the front panel to indicate power, network and hard drive activity.  
 Instead, when using a 3rd party OS with e.g. DX 4600 Pro, only the power indicator light blinks, and the other LEDs are off by default.  
-For the DXP series, all LEDs blink in rolling sequence when non-UGOS systems are running.
+For the DXP and iDX series, all LEDs blink in a rolling sequence when non-UGOS systems are running.
 
 This repository
  - Describes the control logic of UGOS for the LED lights on the device front
@@ -13,7 +13,7 @@ This repository
 For the process of understanding this control logic, please refer to [my blog (in Chinese)](https://blog.miskcoo.com/2024/05/ugreen-dx4600-pro-led-controller).
 
 > [!NOTE]  
-> Only tested on the following devices:
+> Tested on the following devices:
 > - [x] UGREEN DX4600 Pro
 > - [x] UGREEN DX4700+
 > - [x] UGREEN DXP2800 (reported in [#19](https://github.com/miskcoo/ugreen_leds_controller/issues/19))
@@ -21,6 +21,7 @@ For the process of understanding this control logic, please refer to [my blog (i
 > - [x] UGREEN DXP4800 Plus (reported [here](https://gist.github.com/Kerryliu/c380bb6b3b69be5671105fc23e19b7e8))
 > - [x] UGREEN DXP6800 Pro (reported in [#7](https://github.com/miskcoo/ugreen_leds_controller/issues/7))
 > - [x] UGREEN DXP8800 Plus (see [this repo](https://github.com/meyergru/ugreen_dxp8800_leds_controller) and [#1](https://github.com/miskcoo/ugreen_leds_controller/issues/1))
+> - [x] UGREEN NASync iDX6011 Pro (reverse-engineered; see [iDX6011Pro-LED-Protocol.md](iDX6011Pro-LED-Protocol.md) for protocol details)
 > - [ ] UGREEN DXP480T Plus (**Not yet**, but the protocol has been understood, see [#6](https://github.com/miskcoo/ugreen_leds_controller/issues/6#issuecomment-2156807225))
 >
 >**I am not sure whether this is compatible with other devices.  
@@ -99,7 +100,9 @@ Usage: ugreen_leds_cli  [LED-NAME...] [-on] [-off] [-(blink|breath) T_ON T_OFF]
                     [-color R G B] [-brightness BRIGHTNESS] [-status]
 
        LED_NAME:    separated by white space, possible values are
-                    { power, netdev, disk[1-8], all }.
+                    { power, netdev, netdev2, disk[1-8], all }.
+                    netdev2 is the second network LED on the iDX6011 Pro
+                    (also accessible as network_stat / network_stat2).
        -on / -off:  turn on / off corresponding LEDs.
        -blink / -breath:  set LED to the blink / breath mode. This
                     mode keeps the LED on for T_ON millseconds and then
@@ -269,75 +272,122 @@ sdh  7:0:0:0    XXJDB1XX
 
 ## Communication Protocols
 
-The IDs for the LED lights on the front panel of the NAS chassis are as follows: 
+The LED controller chip is a Holtek HT32F52231 MCU accessible at I²C address `0x3a` on the SMBus I801 adapter.  
+The DX/DXP series and the iDX series use slightly different I²C transfer types (see below).
 
-|     ID      | LED |
-|-------------|--------------------------------|
-| `0`         | Power indicator |
-| `1`         | Network device indicator |
-| `2`,`3`,... | Hard drive indicator "disk1", "disk2" etc. |
+### LED ID Mapping
+
+The LED IDs differ between device families:
+
+| LED | DX/DXP series | iDX6011 Pro |
+|-----|:---:|:---:|
+| Power | `0` | `0` |
+| Network (LAN 1) | `1` | `1` |
+| Network 2 (LAN 2) | — | `2` |
+| Disk 1 | `2` | `3` |
+| Disk 2 | `3` | `4` |
+| … | … | … |
+| Disk 6 | `7` | `8` |
+| Disk 7 | `8` | — |
+| Disk 8 | `9` | — |
 
 ### Query Status
 
-Reading 11 bytes from the address `0x81 + LED_ID` allows us to obtain the current status of the corresponding LED. The meaning of these 11 bytes is as follows:
+Reading 11 bytes from the address `0x81 + LED_ID` allows us to obtain the current status of the corresponding LED (identical for all models). The meaning of these 11 bytes is as follows:
 
-| Address | Meaning of Corresponding Data |
-|---------|--------------------------------|
-| `0x00`  | LED status: 0 (off), 1 (on), 2 (blink), 3 (breath) |
-| `0x01`  | LED brightness |
-| `0x02`  | LED color (Red component in RGB) |
-| `0x03`  | LED color (Green component in RGB) |
-| `0x04`  | LED color (Blue component in RGB) |
-| `0x05`  | Milliseconds needed to complete one blink/breath cycle (high 8 bits) |
-| `0x06`  | Milliseconds needed to complete one blink/breath cycle (low 8 bits) |
-| `0x07`  | Milliseconds the LED is on during one blink/breath cycle (high 8 bits) |
-| `0x08`  | Milliseconds the LED is on during one blink/breath cycle (low 8 bits) |
-| `0x09`  | Checksum of data in the range 0x00 - 0x08 (high 8 bits) |
-| `0x0a`  | Checksum of data in the range 0x00 - 0x08 (low 8 bits) |
+| Offset | Meaning |
+|--------|---------|
+| `0x00` | LED status: 0 (off), 1 (on), 2 (blink), 3 (breath) |
+| `0x01` | LED brightness |
+| `0x02` | LED color (Red) |
+| `0x03` | LED color (Green) |
+| `0x04` | LED color (Blue) |
+| `0x05` | Milliseconds per blink/breath cycle (high byte) |
+| `0x06` | Milliseconds per blink/breath cycle (low byte) |
+| `0x07` | Milliseconds LED is on per cycle (high byte) |
+| `0x08` | Milliseconds LED is on per cycle (low byte) |
+| `0x09` | Checksum of bytes 0x00–0x08 (high byte) |
+| `0x0a` | Checksum of bytes 0x00–0x08 (low byte) |
 
-The checksum is a 16-bit value obtained by summing all the data at the corresponding positions as unsigned integers.
+The checksum is a 16-bit sum of bytes 0x00–0x08.
 
-We can directly use `i2cget` to read from the relevant registers. For example, below is the status of the power indicator light (purple, blinking once per second, lit for 40% of the time, with a brightness of 180/256):
-
-```
-$ i2cget -y 0x01 0x3a 0x81 i 0x0b 0x02 0xb4 0xff 0x00 0xff 0x03 0xe8 0x01 0x90 0x04 0x30
+```bash
+# Read power LED status (register 0x81)
+i2cget -y 1 0x3a 0x81 i
 ```
 
 ### Change Status
 
-By writing 12 bytes to the address `0x00 + LED_ID`, we can modify the current status of the corresponding LED. The meaning of these 12 bytes is as follows:
+The two device families use different I²C transfer types and data layouts:
 
-| Address | Meaning of Corresponding Data |
-|---------|--------------------------------|
-| `0x00`  | LED ID |
-| `0x01`  | Constant: 0xa0 |
-| `0x02`  | Constant: 0x01 |
-| `0x03`  | Constant: 0x00 |
-| `0x04`  | Constant: 0x00 |
-| `0x05`  | If the value is 1, it indicates modifying brightness<br/> If the value is 2, it indicates modifying color<br/> If the value is 3, it indicates setting the on/off state<br/> If the value is 4, it indicates setting the blink state<br/> If the value is 5, it indicates setting the breath state |
-| `0x06`  | First parameter |
-| `0x07`  | Second parameter |
-| `0x08`  | Third parameter |
-| `0x09`  | Fourth parameter |
-| `0x0a`  | Checksum of data in the range 0x01 - 0x09 (high 8 bits) |
-| `0x0b`  | Checksum of data in the range 0x01 - 0x09 (low 8 bits) |
+#### DX/DXP Series
 
-For the four different modification types at address `0x05`:
-- If we need to modify **brightness**, the first parameter contains brightness information.
-- If we need to modify **color**, the first three parameters represent RGB information.
-- If we need to toggle the **on/off state**, the first parameter is either 0 (off) or 1 (on).
-- If we need to set the **blink/breath state**, the first two parameters together form a 16-bit unsigned integer in big-endian order, representing the number of milliseconds needed to complete one blink/breath cycle. The next two parameters, also in big-endian order, represent the time in milliseconds the LED is on during one blink/breath cycle.
+Uses **I²C block write** (no count byte on the wire). Write 12 bytes to register `LED_ID`:
 
-Below is an example for turning off and on the power indicator light using `i2cset`:
+| Offset | Value |
+|--------|-------|
+| `0x00` | LED ID (repeated as first data byte) |
+| `0x01` | Constant: `0xa0` |
+| `0x02` | Constant: `0x01` |
+| `0x03` | Constant: `0x00` |
+| `0x04` | Constant: `0x00` |
+| `0x05` | Command: 1=brightness, 2=color, 3=on/off, 4=blink, 5=breath |
+| `0x06`–`0x09` | Parameters |
+| `0x0a` | Checksum of bytes 0x01–0x09 (high byte) |
+| `0x0b` | Checksum of bytes 0x01–0x09 (low byte) |
 
+```bash
+# DXP: turn on power LED (i2cset mode "i" = I2C block write, no count byte)
+i2cset -y 1 0x3a 0x00  0x00 0xa0 0x01 0x00 0x00 0x03 0x01 0x00 0x00 0x00 0x00 0xa5 i
+# DXP: turn off power LED
+i2cset -y 1 0x3a 0x00  0x00 0xa0 0x01 0x00 0x00 0x03 0x00 0x00 0x00 0x00 0x00 0xa4 i
 ```
-# turn off power LED
-$ i2cset -y 0x01 0x3a 0x00  0x00 0xa0 0x01 0x00 0x00 0x03 0x01 0x00 0x00 0x00 0x00 0xa5 i
 
-# turn on power LED
-$ i2cset -y 0x01 0x3a 0x00  0x00 0xa0 0x01 0x00 0x00 0x03 0x00 0x00 0x00 0x00 0x00 0xa4 i
+#### iDX6011 Pro
+
+Uses **SMBus block write** (count byte `0x0b` is prepended automatically by the kernel). Write 11 bytes to register `LED_ID`:
+
+| Offset | Value |
+|--------|-------|
+| `0x00` | Constant: `0xa0` |
+| `0x01` | Constant: `0x01` |
+| `0x02` | Constant: `0x00` |
+| `0x03` | Constant: `0x00` |
+| `0x04` | Command: 1=brightness, 2=color, 3=on/off, 4=blink, 5=breath |
+| `0x05`–`0x08` | Parameters |
+| `0x09` | Checksum of bytes 0x00–0x08 (high byte) |
+| `0x0a` | Checksum of bytes 0x00–0x08 (low byte) |
+
+Checksum = `0xa1 + command + param1 + param2 + param3 + param4`
+
+Before individual LED writes, a one-time **init sequence** must be sent to release the MCU from its autonomous rolling-LED animation:
+
+```bash
+# iDX6011 Pro: init sequence (run once at startup, "s" = SMBus block write with count byte)
+i2cset -y 0 0x3a 0x00 0xa0 0x01 0x00 0x00 0x04 0x00 0x00 0x00 0x00 0x00 0xa5 s; sleep 0.05
+i2cset -y 0 0x3a 0x00 0xa0 0x01 0x00 0x00 0x01 0xff 0x00 0x00 0x00 0x01 0xa1 s; sleep 0.05
+i2cset -y 0 0x3a 0x00 0xa0 0x01 0x00 0x00 0x02 0xff 0xff 0xff 0x00 0x03 0xa0 s; sleep 0.05
+i2cset -y 0 0x3a 0x00 0xa0 0x01 0x00 0x00 0x03 0xff 0x00 0x00 0x00 0x01 0xa3 s; sleep 0.05
+i2cset -y 0 0x3a 0x00 0xa0 0x01 0x00 0x00 0x01 0xff 0x00 0x00 0x00 0x01 0xa1 s
+
+# iDX6011 Pro: turn on disk1 at full brightness (LED index 3, mode "s")
+i2cset -y 0 0x3a 0x03 0xa0 0x01 0x00 0x00 0x01 0xff 0x00 0x00 0x00 0x01 0xa1 s
+# iDX6011 Pro: turn off disk1
+i2cset -y 0 0x3a 0x03 0xa0 0x01 0x00 0x00 0x01 0x00 0x00 0x00 0x00 0x00 0xa2 s
 ```
+
+For a full list of i2cset commands and protocol details, see [iDX6011Pro-LED-Protocol.md](iDX6011Pro-LED-Protocol.md).
+
+#### Command parameters
+
+For all models:
+- **Brightness** (cmd=1): param1 = brightness value (0 = off, 255 = full)
+- **Color** (cmd=2): param1=R, param2=G, param3=B
+- **On/Off** (cmd=3): param1 = 1 (on) or 0 (off)
+- **Blink/Breath** (cmd=4/5): param1+param2 = cycle duration in ms (big-endian), param3+param4 = on-time in ms (big-endian)
 
 ## Acknowledgement
 
-ChatGPT, [this V2EX post](https://fast.v2ex.com/t/991429), Ghidra 
+ChatGPT, [this V2EX post](https://fast.v2ex.com/t/991429), Ghidra
+
+The iDX6011 Pro support was reverse-engineered from the original UGOS firmware (`leds-mcu.ko`, kernel 6.12.30+) using `objdump` and `strings`. Key findings: the iDX series uses `i2c_smbus_write_block_data` (SMBus with count byte) instead of `i2c_smbus_write_i2c_block_data`, a different LED register mapping (9 LEDs with a second network LED at index 2), and requires a 5-step init sequence to take control from the autonomous MCU animation. Full protocol documentation is in [iDX6011Pro-LED-Protocol.md](iDX6011Pro-LED-Protocol.md).
