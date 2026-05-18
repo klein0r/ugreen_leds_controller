@@ -17,6 +17,7 @@
 #include <linux/proc_fs.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
+#include <linux/dmi.h>
 #include "led-ugreen.h"
 
 #ifdef pr_fmt
@@ -28,44 +29,68 @@ static bool verbose = false;
 module_param(verbose, bool, 0644);
 MODULE_PARM_DESC(verbose, "Enable verbose output");
 
+static enum ugreen_model ugreen_detect_model(void) {
+    const char *product = dmi_get_system_info(DMI_PRODUCT_NAME);
+    if (!product)
+        return UGREEN_MODEL_DXP;
+    if (strstr(product, "iDX6011") || strstr(product, "iDX6012"))
+        return UGREEN_MODEL_IDX6011;
+    return UGREEN_MODEL_DXP;
+}
+
 static struct ugreen_led_state *lcdev_to_ugreen_led_state(struct led_classdev *led_cdev) {
     return container_of(led_cdev, struct ugreen_led_state, cdev);
 }
 
 static int ugreen_led_change_state(
-    struct i2c_client *client, 
-    u8 led_id, 
+    struct i2c_client *client,
+    enum ugreen_model model,
+    u8 led_id,
     u8 command,
     u8 param1,
     u8 param2,
     u8 param3,
     u8 param4
 ) {
-    // compute the checksum
+    // checksum over the 9 data bytes following the fixed 0xa0 0x01 0x00 0x00 header
     u16 cksum = 0xa1 + (u16)command + param1 + param2 + param3 + param4;
+    s32 rc;
 
-    // construct the write buffer
-    u8 buf[12] = { 
-        led_id, 
-        0xa0, 0x01, 0x00, 0x00, 
-        command, 
-        param1, param2, param3, param4,
-        (u8)((cksum >> 8) & 0xff),
-        (u8)(cksum & 0xff)
-    };
-
-    // write the buffer to the I2C device by sending block data 
-    s32 rc = i2c_smbus_write_i2c_block_data(client, led_id, 12, buf);
-
-    // check the return code
-    if (rc < 0) {
-        pr_err("%s: i2c_smbus_write_i2c_block_data failed with id %d,"
-                "cmd 0x%x, params (0x%x, 0x%x, 0x%x, 0x%x), err %d", 
-                __func__, led_id, command, param1, param2, param3, param4, rc);
-        return rc;
+    if (model == UGREEN_MODEL_IDX6011) {
+        // iDX6011/iDX6012: SMBus block write (kernel prepends count byte on the wire)
+        // register = led_id (0–8), data = [0xa0 0x01 0x00 0x00 cmd p1 p2 p3 p4 ck_hi ck_lo]
+        u8 buf[11] = {
+            0xa0, 0x01, 0x00, 0x00,
+            command,
+            param1, param2, param3, param4,
+            (u8)((cksum >> 8) & 0xff),
+            (u8)(cksum & 0xff)
+        };
+        rc = i2c_smbus_write_block_data(client, led_id, 11, buf);
+        if (rc < 0) {
+            pr_err("%s: i2c_smbus_write_block_data failed with id %d,"
+                    "cmd 0x%x, params (0x%x, 0x%x, 0x%x, 0x%x), err %d",
+                    __func__, led_id, command, param1, param2, param3, param4, rc);
+        }
+    } else {
+        // DXP/DX series: I2C block write (no count byte), led_id duplicated in buf[0]
+        u8 buf[12] = {
+            led_id,
+            0xa0, 0x01, 0x00, 0x00,
+            command,
+            param1, param2, param3, param4,
+            (u8)((cksum >> 8) & 0xff),
+            (u8)(cksum & 0xff)
+        };
+        rc = i2c_smbus_write_i2c_block_data(client, led_id, 12, buf);
+        if (rc < 0) {
+            pr_err("%s: i2c_smbus_write_i2c_block_data failed with id %d,"
+                    "cmd 0x%x, params (0x%x, 0x%x, 0x%x, 0x%x), err %d",
+                    __func__, led_id, command, param1, param2, param3, param4, rc);
+        }
     }
 
-    return 0;
+    return rc < 0 ? rc : 0;
 }
 
 // get the state of the DX4600 LEDs 
@@ -130,8 +155,8 @@ static bool ugreen_led_get_last_command_status(struct i2c_client *client) {
 }
 
 static int ugreen_led_change_state_robust(
-    struct i2c_client *client, 
-    u8 led_id, 
+    struct ugreen_led_array *priv,
+    u8 led_id,
     u8 command,
     u8 param1,
     u8 param2,
@@ -146,10 +171,10 @@ static int ugreen_led_change_state_robust(
 
         if (i > 0) pr_debug("retrying %d", i);
 
-        rc = ugreen_led_change_state(client, led_id, command, param1, param2, param3, param4);
+        rc = ugreen_led_change_state(priv->client, priv->model, led_id, command, param1, param2, param3, param4);
         if (rc == 0) {
             usleep_range(1500, 2500);
-            if (ugreen_led_get_last_command_status(client)) {
+            if (ugreen_led_get_last_command_status(priv->client)) {
                 return 0;
             }
         }
@@ -184,7 +209,7 @@ static void ugreen_led_turn_on_or_off_unlock(struct ugreen_led_array *priv, u8 l
         return;
     }
 
-    int rc = ugreen_led_change_state_robust(priv->client, led_id, 0x03, on ? 1 : 0, 0, 0, 0);
+    int rc = ugreen_led_change_state_robust(priv, led_id, 0x03, on ? 1 : 0, 0, 0, 0);
     if (rc == 0) {
         priv->state[led_id].status = on ? UGREEN_LED_STATE_ON : UGREEN_LED_STATE_OFF;
     } else if (verbose) {
@@ -200,7 +225,7 @@ static void ugreen_led_set_brightness_unlock(struct ugreen_led_array *priv, u8 l
         ugreen_led_turn_on_or_off_unlock(priv, led_id, false);
     } else {
         if (state->brightness != brightness) {
-            int rc = ugreen_led_change_state_robust(priv->client, led_id, 0x01, brightness, 0, 0, 0);
+            int rc = ugreen_led_change_state_robust(priv, led_id, 0x01, brightness, 0, 0, 0);
             if (rc == 0) {
                 state->brightness = brightness;
             } else if (verbose) {
@@ -222,7 +247,7 @@ static void ugreen_led_set_color_unlock(struct ugreen_led_array *priv, u8 led_id
     }
 
     if (state->r != r || state->g != g || state->b != b) {
-        int rc = ugreen_led_change_state_robust(priv->client, led_id, 0x02, r, g, b, 0);
+        int rc = ugreen_led_change_state_robust(priv, led_id, 0x02, r, g, b, 0);
         if (rc == 0) {
             state->r = r;
             state->g = g;
@@ -242,7 +267,7 @@ static void ugreen_led_set_blink_or_breath_unlock(struct ugreen_led_array *priv,
     if (state->t_on == t_on && state->t_cycle == t_cycle && state->status == led_status) {
         rc = 0;
     } else {
-        rc = ugreen_led_change_state_robust(priv->client, led_id, is_blink ? 0x04 : 0x05, 
+        rc = ugreen_led_change_state_robust(priv, led_id, is_blink ? 0x04 : 0x05,
             (u8)(t_cycle >> 8), (u8)(t_cycle & 0xff), 
             (u8)(t_on >> 8), (u8)(t_on & 0xff)
         );
@@ -461,15 +486,28 @@ static int ugreen_led_probe(struct i2c_client *client) {
     pr_info ("i2c probed");
 
     struct ugreen_led_array *priv;
-    
+
     priv = devm_kzalloc(&client->dev, sizeof(struct ugreen_led_array), GFP_KERNEL);
     if (!priv) {
         return -ENOMEM;
     }
 
     priv->client = client;
-
+    priv->model = ugreen_detect_model();
     mutex_init(&priv->mutex);
+
+    pr_info("detected model: %s",
+        priv->model == UGREEN_MODEL_IDX6011 ? "iDX6011/iDX6012" : "DXP/DX");
+
+    // iDX6011 Pro init sequence: takes control from the autonomous flowing LED animation.
+    // Mirrors the 5-call sequence found in leds_ugreen_probe() at offset 0x1720 in leds-mcu.ko.
+    if (priv->model == UGREEN_MODEL_IDX6011) {
+        ugreen_led_change_state(client, UGREEN_MODEL_IDX6011, 0, 0x04, 0, 0, 0, 0); msleep(50);
+        ugreen_led_change_state(client, UGREEN_MODEL_IDX6011, 0, 0x01, 255, 0, 0, 0); msleep(50);
+        ugreen_led_change_state(client, UGREEN_MODEL_IDX6011, 0, 0x02, 255, 255, 255, 0); msleep(50);
+        ugreen_led_change_state(client, UGREEN_MODEL_IDX6011, 0, 0x03, 255, 0, 0, 0); msleep(50);
+        ugreen_led_change_state(client, UGREEN_MODEL_IDX6011, 0, 0x01, 255, 0, 0, 0); msleep(50);
+    }
 
     // probe and initialize leds
     for (int i = 0; i < UGREEN_MAX_LED_NUMBER; ++i) {
@@ -483,13 +521,12 @@ static int ugreen_led_probe(struct i2c_client *client) {
         if (state->status != UGREEN_LED_STATE_INVALID) {
 
             pr_info("probed led id %d, status %d, rgb 0x%02x%02x%02x, "
-                    "brightness %d, t_on %d, t_cycle %d\n", i, 
+                    "brightness %d, t_on %d, t_cycle %d\n", i,
                     state->status, state->r, state->g, state->b,
                     state->brightness, state->t_on, state->t_cycle);
 
             ugreen_led_set_brightness_unlock(priv, i, 128);
             ugreen_led_set_color_unlock(priv, i, 0xff, 0xff, 0xff);
-
         }
     }
 
@@ -497,10 +534,25 @@ static int ugreen_led_probe(struct i2c_client *client) {
 
     mutex_lock(&priv->mutex);
 
-    // register leds class devices
-    const char *led_name[] = {
+    // LED names per model
+    static const char *led_name_dxp[] = {
         "power", "netdev", "disk1", "disk2", "disk3", "disk4", "disk5", "disk6", "disk7", "disk8"
     };
+    // iDX6011 Pro: Power + 2x LAN + 6x Disk = 9 LEDs
+    static const char *led_name_idx6011[] = {
+        "power", "network_stat", "network_stat2",
+        "disk1", "disk2", "disk3", "disk4", "disk5", "disk6"
+    };
+
+    const char **led_name;
+    int led_name_count;
+    if (priv->model == UGREEN_MODEL_IDX6011) {
+        led_name = led_name_idx6011;
+        led_name_count = ARRAY_SIZE(led_name_idx6011);
+    } else {
+        led_name = led_name_dxp;
+        led_name_count = ARRAY_SIZE(led_name_dxp);
+    }
 
     for (int i = 0; i < UGREEN_MAX_LED_NUMBER; ++i) {
 
@@ -509,9 +561,10 @@ static int ugreen_led_probe(struct i2c_client *client) {
             continue;
 
         // register the brightness control
-        if (i < ARRAY_SIZE(led_name))
+        if (i < led_name_count)
             state->cdev.name = led_name[i];
-        else state->cdev.name = "unknown";
+        else
+            state->cdev.name = "unknown";
 
         state->cdev.brightness = state->cdev.brightness;
         state->cdev.max_brightness = 0xff;
@@ -520,10 +573,19 @@ static int ugreen_led_probe(struct i2c_client *client) {
         state->cdev.groups = ugreen_led_groups;
         state->cdev.blink_set = ugreen_led_set_blink;
 
-        if (i == 1) {
-            state->cdev.default_trigger = "netdev";
-        } else if (i >= 2) {
-            state->cdev.default_trigger = "oneshot";
+        if (priv->model == UGREEN_MODEL_IDX6011) {
+            // index 1 = network_stat (LAN1), index 2 = network_stat2 (LAN2)
+            if (i == 1 || i == 2) {
+                state->cdev.default_trigger = "netdev";
+            } else if (i >= 3) {
+                state->cdev.default_trigger = "oneshot";
+            }
+        } else {
+            if (i == 1) {
+                state->cdev.default_trigger = "netdev";
+            } else if (i >= 2) {
+                state->cdev.default_trigger = "oneshot";
+            }
         }
 
         led_classdev_register(&client->dev, &state->cdev);

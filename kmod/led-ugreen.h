@@ -14,6 +14,11 @@
 #define UGREEN_MAX_LED_NUMBER           ( 10 )
 #define UGREEN_LED_CHANGE_STATE_RETRY_COUNT   ( 5 )
 
+enum ugreen_model {
+    UGREEN_MODEL_DXP,        // DXP/DX series: i2c_smbus_write_i2c_block_data, led_id in buf[0]
+    UGREEN_MODEL_IDX6011,    // iDX6011/iDX6012: i2c_smbus_write_block_data, count byte added by kernel
+};
+
 #define UGREEN_LED_STATE_OFF        ( 0 )
 #define UGREEN_LED_STATE_ON         ( 1 )
 #define UGREEN_LED_STATE_BLINK      ( 2 )
@@ -38,6 +43,7 @@ struct ugreen_led_state {
 struct ugreen_led_array {
     struct i2c_client *client;
     struct mutex mutex;
+    enum ugreen_model model;
     struct ugreen_led_state state[UGREEN_MAX_LED_NUMBER];
 };
 

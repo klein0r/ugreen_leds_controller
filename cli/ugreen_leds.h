@@ -8,6 +8,7 @@
 
 #define UGREEN_LED_POWER    ugreen_leds_t::led_type_t::power
 #define UGREEN_LED_NETDEV   ugreen_leds_t::led_type_t::netdev
+#define UGREEN_LED_NETDEV2  ugreen_leds_t::led_type_t::netdev2
 #define UGREEN_LED_DISK1    ugreen_leds_t::led_type_t::disk1
 #define UGREEN_LED_DISK2    ugreen_leds_t::led_type_t::disk2
 #define UGREEN_LED_DISK3    ugreen_leds_t::led_type_t::disk3
@@ -23,6 +24,11 @@
 class ugreen_leds_t {
 
     i2c_device_t _i2c;
+    model_t _model = model_t::DXP;
+
+    static model_t detect_model();
+    void init_idx6011();
+    uint8_t get_i2c_reg(led_type_t id) const;
 
 public:
 
@@ -30,8 +36,12 @@ public:
         off = 0, on, blink, breath
     };
 
+    enum class model_t { DXP, IDX6011 };
+
+    // Named LED identifiers – NOT directly I2C register values.
+    // Use get_i2c_reg() to convert to the model-specific I2C write register.
     enum class led_type_t : uint8_t {
-        power = 0, netdev, disk1, disk2, disk3, disk4, disk5, disk6, disk7, disk8
+        power = 0, netdev, netdev2, disk1, disk2, disk3, disk4, disk5, disk6, disk7, disk8
     };
 
     struct led_data_t {

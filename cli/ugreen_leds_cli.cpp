@@ -17,16 +17,19 @@
 #define USLEEP_MODIFICATION_QUERY_RESULT_INTERVAL 2000
 
 static std::map<std::string, ugreen_leds_t::led_type_t> led_name_map = {
-    { "power",  UGREEN_LED_POWER },
-    { "netdev", UGREEN_LED_NETDEV },
-    { "disk1",  UGREEN_LED_DISK1 },
-    { "disk2",  UGREEN_LED_DISK2 },
-    { "disk3",  UGREEN_LED_DISK3 },
-    { "disk4",  UGREEN_LED_DISK4 },
-    { "disk5",  UGREEN_LED_DISK5 },
-    { "disk6",  UGREEN_LED_DISK6 },
-    { "disk7",  UGREEN_LED_DISK7 },
-    { "disk8",  UGREEN_LED_DISK8 },
+    { "power",        UGREEN_LED_POWER },
+    { "netdev",       UGREEN_LED_NETDEV },
+    { "network_stat", UGREEN_LED_NETDEV },   // iDX6011 Pro alias
+    { "netdev2",      UGREEN_LED_NETDEV2 },
+    { "network_stat2",UGREEN_LED_NETDEV2 },  // iDX6011 Pro alias
+    { "disk1",        UGREEN_LED_DISK1 },
+    { "disk2",        UGREEN_LED_DISK2 },
+    { "disk3",        UGREEN_LED_DISK3 },
+    { "disk4",        UGREEN_LED_DISK4 },
+    { "disk5",        UGREEN_LED_DISK5 },
+    { "disk6",        UGREEN_LED_DISK6 },
+    { "disk7",        UGREEN_LED_DISK7 },
+    { "disk8",        UGREEN_LED_DISK8 },
 };
 
 using led_type_pair = std::pair<std::string, ugreen_leds_t::led_type_t>;

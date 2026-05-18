@@ -81,6 +81,29 @@ int i2c_device_t::write_block_data(uint8_t command, std::vector<uint8_t> data) {
     return rc;
 }
 
+// SMBus block write – kernel automatically prepends count byte on the wire.
+// Required for iDX6011 Pro (i2c_smbus_write_block_data in the kernel driver).
+int i2c_device_t::write_smbus_block_data(uint8_t command, std::vector<uint8_t> data) {
+    if (!_fd) return -1;
+
+    uint32_t size = data.size();
+    if (size > I2C_SMBUS_BLOCK_MAX)
+        size = I2C_SMBUS_BLOCK_MAX;
+
+    i2c_smbus_data smbus_data;
+    smbus_data.block[0] = size;
+    for (uint32_t i = 0; i < size; ++i)
+        smbus_data.block[i + 1] = data[i];
+
+    i2c_smbus_ioctl_data ioctl_data;
+    ioctl_data.size = I2C_SMBUS_BLOCK_DATA;
+    ioctl_data.read_write = I2C_SMBUS_WRITE;
+    ioctl_data.command = command;
+    ioctl_data.data = &smbus_data;
+
+    return ioctl(_fd, I2C_SMBUS, &ioctl_data);
+}
+
 uint8_t i2c_device_t::read_byte_data(uint8_t command) {
     if (!_fd) return { };
 
