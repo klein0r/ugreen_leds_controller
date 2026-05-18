@@ -3,6 +3,7 @@
 
 #include <array>
 #include <optional>
+#include <vector>
 
 #include "i2c.h"
 
@@ -46,6 +47,9 @@ public:
     };
 
     int start();
+
+    // Returns the canonical (name, type) list for the current model – use this for "all".
+    std::vector<std::pair<std::string, led_type_t>> get_all_leds() const;
 
     led_data_t get_status(led_type_t id);
     int set_onoff(led_type_t id, uint8_t status);

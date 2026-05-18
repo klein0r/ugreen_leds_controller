@@ -6,6 +6,8 @@
 #include <thread>
 #include <chrono>
 #include <cstdlib>
+#include <utility>
+#include <vector>
 
 #define I2C_DEV_PATH  "/sys/class/i2c-dev/"
 
@@ -76,6 +78,36 @@ int ugreen_leds_t::start() {
     }
 
     return -1;
+}
+
+std::vector<std::pair<std::string, ugreen_leds_t::led_type_t>> ugreen_leds_t::get_all_leds() const {
+    using P = std::pair<std::string, led_type_t>;
+    if (_model == model_t::IDX6011) {
+        return {
+            { "power",         led_type_t::power   },
+            { "network_stat",  led_type_t::netdev  },
+            { "network_stat2", led_type_t::netdev2 },
+            { "disk1",         led_type_t::disk1   },
+            { "disk2",         led_type_t::disk2   },
+            { "disk3",         led_type_t::disk3   },
+            { "disk4",         led_type_t::disk4   },
+            { "disk5",         led_type_t::disk5   },
+            { "disk6",         led_type_t::disk6   },
+        };
+    }
+    // DXP/DX series
+    return {
+        { "power",  led_type_t::power  },
+        { "netdev", led_type_t::netdev },
+        { "disk1",  led_type_t::disk1  },
+        { "disk2",  led_type_t::disk2  },
+        { "disk3",  led_type_t::disk3  },
+        { "disk4",  led_type_t::disk4  },
+        { "disk5",  led_type_t::disk5  },
+        { "disk6",  led_type_t::disk6  },
+        { "disk7",  led_type_t::disk7  },
+        { "disk8",  led_type_t::disk8  },
+    };
 }
 
 // Returns the I2C write register for a given LED on the current model.

@@ -158,10 +158,8 @@ int main(int argc, char *argv[])
 
     while (!args.empty() && args.front().front() != '-') {
         if (args.front() == "all") {
-            for (const auto &v : led_name_map) {
-                if (get_status_robust(leds_controller, v.second).is_available)
-                    leds.push_back(v);
-            }
+            for (const auto &v : leds_controller.get_all_leds())
+                leds.push_back(v);
         } else {
             auto led_type = get_led_type(args.front());
             leds.emplace_back(args.front(), led_type);
