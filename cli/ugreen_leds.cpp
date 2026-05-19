@@ -262,11 +262,15 @@ int ugreen_leds_t::set_onoff(led_type_t id, uint8_t status) {
 }
 
 int ugreen_leds_t::_set_blink_or_breath(uint8_t command, led_type_t id, uint16_t t_on, uint16_t t_off) {
+    // MCU ignores direct blink↔breath switches; turn off first so the mode change is accepted.
+    _change_status(id, 0x03, { 0 });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
     uint16_t t_hight = t_on + t_off;
     uint16_t t_low = t_on;
-    return _change_status(id, command, { 
-        (uint8_t)(t_hight >> 8), 
-        (uint8_t)(t_hight & 0xff), 
+    return _change_status(id, command, {
+        (uint8_t)(t_hight >> 8),
+        (uint8_t)(t_hight & 0xff),
         (uint8_t)(t_low >> 8),
         (uint8_t)(t_low & 0xff),
     } );
