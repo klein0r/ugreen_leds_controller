@@ -3,6 +3,7 @@
 
 #include <array>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "i2c.h"
